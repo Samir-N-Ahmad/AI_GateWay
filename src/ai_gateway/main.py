@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from src.services.inference_service import InferenceService
+from ai_gateway.services.inference_service import InferenceService
 
 inf = InferenceService("Qwen/Qwen2.5-0.5B-Instruct")
 app = FastAPI()

@@ -1,5 +1,5 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM
-
+import torch
 class InferenceService:
 
     def __init__(self, model:str):
@@ -13,7 +13,7 @@ class InferenceService:
         self._messages = [
             {
                 "role":  "user",
-                "content":"The Capital of France is?"
+                "content":"whas is Sports Federal Authority in the united Arab Emirates"
             }
         ]
         self._inputs = self._tokenizer.apply_chat_template(
@@ -23,10 +23,20 @@ class InferenceService:
             return_tensors="pt",
             return_dict=True
         )
-        
-
-
+        with torch.inference_mode():
+            self._outputs = self._model.generate(**self._inputs,  max_new_tokens=100)
+            self._generated = self._outputs[:,self._inputs["input_ids"].shape[1]:]
 
     def print_inputs(self):
-        print(self._inputs["input_ids"])
-        print(self._inputs["input_ids"].shape)
+        # print(self._inputs["input_ids"])
+        # print( self._messages)
+        # print(self._inputs["input_ids"].shape)
+        # print(self._inputs["attention_mask"].shape)
+        # print(self._outputs.hidden_states[-1].shape)
+        # print(torch.argmax(self._outputs.logits[:,-1,:],dim=-1))
+        # print(self._tokenizer.decode(torch.argmax(self._outputs.logits[:,30,:],dim=-1)))
+        # print(self._tokenizer.decode(torch.argmax(self._outputs.logits[:,31,:],dim=-1)))
+        # print(self._tokenizer.decode(torch.argmax(self._outputs.logits[:,32,:],dim=-1)))
+        # print(self._tokenizer.decode(torch.argmax(self._outputs.logits[:,33,:],dim=-1)))
+
+        print(self._tokenizer.batch_decode(self._generated,skip_special_tokens=True)[0])
