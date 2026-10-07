@@ -16,4 +16,5 @@ def inference():
 @app.get("/send/{messages}")
 def send(messages:str):
     global inf
-    return {"code":200, "inference":inf.send_message(messages)}
+    result = inf.send_message(messages)
+    return {"code":200, "inference":result}

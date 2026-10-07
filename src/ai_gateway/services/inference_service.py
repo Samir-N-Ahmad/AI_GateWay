@@ -14,9 +14,32 @@ class InferenceService:
 
     def _prepare_model(self):
         self._messages = [
+             {
+                "role": "system",
+                "content": """
+                        You are a text classification model.
+
+                        Classify the user's message into exactly one of these labels:
+
+                        - request: the user is asking for an action or service.
+                        - issue: the user is reporting a problem, failure, or incorrect behavior.
+                        - recommendation: the user is proposing an improvement or suggestion.
+
+                        Rules:
+                        - Return exactly one label.
+                        - Use lowercase English.
+                        - Do not explain your answer.
+                        - If the message contains multiple intents, choose the primary intent.
+
+                        Valid outputs:
+                        request
+                        issue
+                        recommendation
+                        """
+            },
             {
-                "role":  "user",
-                "content":"whas is Sports Federal Authority in the united Arab Emirates"
+                "role": "user",
+                "content": "التطبيق لا يعمل"
             }
         ]
         self._inputs = self._tokenizer.apply_chat_template(
@@ -76,6 +99,6 @@ class InferenceService:
         self._messages.append({
             "role":"assistant", "content":text
         })
-        return generated
+        # return generated
         
 
