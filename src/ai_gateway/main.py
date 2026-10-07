@@ -1,10 +1,19 @@
 from fastapi import FastAPI
 from ai_gateway.services.inference_service import InferenceService
 
-inf = InferenceService("Qwen/Qwen2.5-0.5B-Instruct")
+inf = None 
 app = FastAPI()
 
 
-@app.get("/inference/{messages}")
-def inference(messages:str):
+@app.get("/inference/start")
+def inference():
+    global inf
+    if inf is None :
+        inf = InferenceService("Qwen/Qwen2.5-0.5B-Instruct")
     return {"code":200, "inference":inf.print_inputs()}
+
+
+@app.get("/send/{messages}")
+def send(messages:str):
+    global inf
+    return {"code":200, "inference":inf.send_message(messages)}
