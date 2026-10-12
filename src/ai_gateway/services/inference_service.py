@@ -1,5 +1,6 @@
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AsyncTextIteratorStreamer
 import torch
+from threading import Thread
 class InferenceService:
 
     def __init__(self, model:str):
@@ -9,10 +10,12 @@ class InferenceService:
         self._tokenizer = AutoTokenizer.from_pretrained(self._model_name)
         self._model = AutoModelForCausalLM.from_pretrained(self._model_name)
         self._model = self._model.to(self._device)
+        self._streamer = AsyncTextIteratorStreamer(self._tokenizer)
         self._model.eval()
         self._prepare_model()
 
-    def _prepare_model(self):
+
+    async def _prepare_model(self):
         self._messages = [
              {
                 "role": "system",
@@ -87,14 +90,12 @@ class InferenceService:
         ).to(self._model.device)
         input_length = self._inputs["input_ids"].shape[-1]
 
-        with torch.inference_mode():
-            generated = self._model.generate(
-                **self._inputs,
-                max_new_tokens=20
-            )[:,input_length:]
+        thread = Thread(target=self._generate)
+        thread.start()
 
-       
-        text = self._tokenizer.batch_decode(generated,skip_special_tokens=True)[0]
+        for chunch in self._streamer:
+            text = self._tokenizer.batch_decode(generated,skip_special_tokens=True)[0]
+            
         print(text)
         self._messages.append({
             "role":"assistant", "content":text
@@ -102,3 +103,11 @@ class InferenceService:
         # return generated
         
 
+        @torch.inference_mode()
+        def _generate(self):
+            self._model.generate(
+                **self._inputs,
+                max_new_tokens=100,
+                streamer=self._streamer
+            ) 
+            
