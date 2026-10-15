@@ -10,16 +10,9 @@ class InferenceService:
         self._tokenizer = AutoTokenizer.from_pretrained(self._model_name)
         self._model = AutoModelForCausalLM.from_pretrained(self._model_name)
         self._model = self._model.to(self._device)
-        self._streamer = AsyncTextIteratorStreamer(self._tokenizer)
         self._model.eval()
-        self._prepare_model()
-
-
-    async def _prepare_model(self):
-        self._messages = [
-             {
-                "role": "system",
-                "content": """
+        self._messages = dict()
+        self._system_prompt = """
                         You are a text classification model.
 
                         Classify the user's message into exactly one of these labels:
@@ -39,31 +32,22 @@ class InferenceService:
                         issue
                         recommendation
                         """
-            },
-            {
-                "role": "user",
-                "content": "التطبيق لا يعمل"
+
+    async def new_chat(self):
+        self._streamer = AsyncTextIteratorStreamer(self._tokenizer)
+        chat_id = 0 if self._messages is None else len(self._messages)
+        self._messages[str(chat_id)] = [
+            {   
+                "role": "system",
+                "content": self._system_prompt
             }
         ]
-        self._inputs = self._tokenizer.apply_chat_template(
-            self._messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_tensors="pt",
-            return_dict=True
-        )
-        self._inputs = {
-            key: value.to(self._device)
-            for key, value in self._inputs.items()
-        }
-        with torch.inference_mode():
-            self._outputs = self._model.generate(**self._inputs,  max_new_tokens=20)
-            self._generated = self._outputs[:,self._inputs["input_ids"].shape[1]:]
-        output = self._tokenizer.batch_decode(self._generated,skip_special_tokens=True)[0]
-        
-        self._messages.append({"role": "assistant","content":output})
+        print(list(self._messages)[0])
+        return chat_id
+    
 
-    def print_inputs(self):
+
+    # def print_inputs(self):
         # print(self._inputs["input_ids"])
         # print( self._messages)
         # print(self._inputs["input_ids"].shape)
@@ -75,14 +59,16 @@ class InferenceService:
         # print(self._tokenizer.decode(torch.argmax(self._outputs.logits[:,32,:],dim=-1)))
         # print(self._tokenizer.decode(torch.argmax(self._outputs.logits[:,33,:],dim=-1)))
 
-        print(self._tokenizer.batch_decode(self._generated,skip_special_tokens=True)[0])
+        # print(self._tokenizer.batch_decode(self._generated,skip_special_tokens=True)[0])
 
-    def send_message(self, message) -> str:
-        self._messages.append(
+    async def send_message(self, message, chat_id) -> str:
+        if self._messages is None:
+            yield "No Chats"
+        self._messages[chat_id].append(
             {"role": "user","content":message
         })
         self._inputs = self._tokenizer.apply_chat_template(
-            self._messages,
+            self._messages[chat_id],
             tokenize=True,
             add_generation_prompt=True,
             return_tensors="pt",
@@ -92,22 +78,22 @@ class InferenceService:
 
         thread = Thread(target=self._generate)
         thread.start()
-
-        for chunch in self._streamer:
-            text = self._tokenizer.batch_decode(generated,skip_special_tokens=True)[0]
+        response = ""
+        async for chunk in self._streamer:
+            response += chunk
+            yield chunk
             
-        print(text)
-        self._messages.append({
-            "role":"assistant", "content":text
+        self._messages[chat_id].append({
+            "role":"assistant", "content":response
         })
         # return generated
         
 
-        @torch.inference_mode()
-        def _generate(self):
-            self._model.generate(
-                **self._inputs,
-                max_new_tokens=100,
-                streamer=self._streamer
-            ) 
+    @torch.inference_mode()
+    def _generate(self):
+        self._model.generate(
+            **self._inputs,
+            max_new_tokens=100,
+            streamer=self._streamer
+        ) 
             
