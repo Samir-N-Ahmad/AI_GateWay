@@ -1,5 +1,6 @@
 from fastapi import FastAPI
-from ai_gateway.services.inference_service import InferenceService
+from ai_gateway.services.inference_service import InferenceService,Mode
+from fastapi.responses import StreamingResponse
 
 inf = None 
 app = FastAPI()
@@ -13,17 +14,18 @@ def inference():
     return {"code":200, "inference":"Started"}
 
 
+@app.get("/inference/modes")
+def get_modes():
+    return {"code":200, "modes":[{"name":mode.name, "value":mode.value} for mode in Mode]}
+
+
 @app.get("/send/{chat_id}/{messages}")
 async def send(chat_id:str, messages:str):
     global inf
-    result = ""
-    async for chunk in inf.send_message(messages, chat_id):
-        print(chunk, end="", flush=True)
-        result += chunk
-    return {"code":200, "inference":result}
+    return StreamingResponse(inf.new_message(int(chat_id), messages), media_type="text/plain")
 
-@app.get("/chat/new")
-async def new():
+@app.get("/chat/new/{mode}")
+async def new(mode:int):
     global inf
-    result = await inf.new_chat()
+    result = await inf.new_chat(Mode(mode))
     return {"code":200, "inference":result}

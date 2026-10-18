@@ -1,51 +1,38 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM, AsyncTextIteratorStreamer
 import torch
-from threading import Thread
+from ai_gateway.services.chat import Chat, Mode
+from typing import AsyncIterator
+
 class InferenceService:
 
     def __init__(self, model:str):
         self._model_name = model
+        
         self._device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
         # self._template = chatTemplate
         self._tokenizer = AutoTokenizer.from_pretrained(self._model_name)
         self._model = AutoModelForCausalLM.from_pretrained(self._model_name)
         self._model = self._model.to(self._device)
         self._model.eval()
-        self._messages = dict()
-        self._system_prompt = """
-                        You are a text classification model.
+        self._chats = dict()
 
-                        Classify the user's message into exactly one of these labels:
 
-                        - request: the user is asking for an action or service.
-                        - issue: the user is reporting a problem, failure, or incorrect behavior.
-                        - recommendation: the user is proposing an improvement or suggestion.
+    async def new_chat(self, mode:Mode):
 
-                        Rules:
-                        - Return exactly one label.
-                        - Use lowercase English.
-                        - Do not explain your answer.
-                        - If the message contains multiple intents, choose the primary intent.
-
-                        Valid outputs:
-                        request
-                        issue
-                        recommendation
-                        """
-
-    async def new_chat(self):
-        self._streamer = AsyncTextIteratorStreamer(self._tokenizer)
-        chat_id = 0 if self._messages is None else len(self._messages)
-        self._messages[str(chat_id)] = [
-            {   
-                "role": "system",
-                "content": self._system_prompt
-            }
-        ]
-        print(list(self._messages)[0])
+        chat_id = 0 if self._chats is None else len(self._chats)
+        chat = Chat(chat_id, mode, self._tokenizer, self._model)
+        self._chats[chat_id] = chat
+        
         return chat_id
     
+    async def new_message(self, chat_id:str, message:str) -> AsyncIterator[str]:
 
+        if chat_id in self._chats:
+            async for chunk in self._chats[int(chat_id)].send_message(message):
+                print(
+            f" passed chunk: {chunk!r}",
+            flush=True)
+                yield chunk
 
     # def print_inputs(self):
         # print(self._inputs["input_ids"])
@@ -60,40 +47,3 @@ class InferenceService:
         # print(self._tokenizer.decode(torch.argmax(self._outputs.logits[:,33,:],dim=-1)))
 
         # print(self._tokenizer.batch_decode(self._generated,skip_special_tokens=True)[0])
-
-    async def send_message(self, message, chat_id) -> str:
-        if self._messages is None:
-            yield "No Chats"
-        self._messages[chat_id].append(
-            {"role": "user","content":message
-        })
-        self._inputs = self._tokenizer.apply_chat_template(
-            self._messages[chat_id],
-            tokenize=True,
-            add_generation_prompt=True,
-            return_tensors="pt",
-            return_dict=True
-        ).to(self._model.device)
-        input_length = self._inputs["input_ids"].shape[-1]
-
-        thread = Thread(target=self._generate)
-        thread.start()
-        response = ""
-        async for chunk in self._streamer:
-            response += chunk
-            yield chunk
-            
-        self._messages[chat_id].append({
-            "role":"assistant", "content":response
-        })
-        # return generated
-        
-
-    @torch.inference_mode()
-    def _generate(self):
-        self._model.generate(
-            **self._inputs,
-            max_new_tokens=100,
-            streamer=self._streamer
-        ) 
-            
