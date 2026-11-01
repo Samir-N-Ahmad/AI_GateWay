@@ -1,8 +1,9 @@
 from ai_gateway.services.mode import Mode
 from typing import AsyncIterator
-from threading import Thread
+from threading import Thread, Event
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, AsyncTextIteratorStreamer
+from ai_gateway.services.cancellation_criteria import CancellationCriteria
 
 class Chat:
 
@@ -11,6 +12,10 @@ class Chat:
         self._mode = mode
         self._tokenizer = tokenizer
         self._model = model
+        self._generation_signal = Event() 
+        self._cancellation_criteria = [
+            CancellationCriteria(self._generation_signal)
+        ]
         # move messages to chat level
         self._system_prompt = """
                         You are a text classification model.
@@ -47,12 +52,16 @@ class Chat:
                         """
         self._messages = [{"role":"System","content":self._system_prompt}]
 
-        
+    
+    def is_generating(self) -> bool:
+        return self._generation_signal.is_set()
+    
     async def send_message(self, message) -> AsyncIterator[str]:
         self._messages.append(
             {"role": "user","content":message
         })
         self._streamer = AsyncTextIteratorStreamer(self._tokenizer, )
+
         self._inputs = self._tokenizer.apply_chat_template(
             self._messages,
             tokenize=True,
@@ -61,31 +70,35 @@ class Chat:
             return_dict=True
         ).to(self._model.device)
         input_length = self._inputs["input_ids"].shape[-1]
-
-        thread = Thread(target=self._generate, args=(self._streamer,))
+        
+        thread = Thread(target=self._generate, args=(self._streamer))
         thread.start()
+
         response = ""
         async for chunk in self._streamer:
-            print(
-            f" Generated chunk: {chunk!r}",
-            flush=True)
-
             response += chunk
             yield chunk
             
         self._messages.append({
             "role":"assistant", "content":response
         })
+        self._generation_signal.clear()
         # return generated
+        
+
+    def stop_generation(self):
+        self._generation_signal.clear()
         
 
     @torch.inference_mode()
     def _generate(self, streamer):
-        self._model.generate(
-            **self._inputs,
-            max_new_tokens=100,
-            streamer=streamer
-        ) 
+        while not self._generation_signal.is_set():
+            self._model.generate(
+                **self._inputs,
+                max_new_tokens=100,
+                streamer=streamer,
+                stopping_criteria = self._cancellation_criteria
+            ) 
             
 
         

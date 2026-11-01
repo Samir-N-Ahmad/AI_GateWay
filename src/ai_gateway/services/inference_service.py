@@ -3,6 +3,7 @@ import torch
 from ai_gateway.services.chat import Chat, Mode
 from typing import AsyncIterator
 
+
 class InferenceService:
 
     def __init__(self, model:str):
@@ -26,24 +27,15 @@ class InferenceService:
         return chat_id
     
     async def new_message(self, chat_id:str, message:str) -> AsyncIterator[str]:
-
         if chat_id in self._chats:
-            async for chunk in self._chats[int(chat_id)].send_message(message):
-                print(
-            f" passed chunk: {chunk!r}",
-            flush=True)
-                yield chunk
+            if not self._chats[int(chat_id)].is_generating():
+                async for chunk in self._chats[int(chat_id)].send_message(message):
+                    print(
+                f" passed chunk: {chunk!r}",
+                flush=True)
+                    yield chunk
 
-    # def print_inputs(self):
-        # print(self._inputs["input_ids"])
-        # print( self._messages)
-        # print(self._inputs["input_ids"].shape)
-        # print(self._inputs["attention_mask"].shape)
-        # print(self._outputs.hidden_states[-1].shape)
-        # print(torch.argmax(self._outputs.logits[:,-1,:],dim=-1))
-        # print(self._tokenizer.decode(torch.argmax(self._outputs.logits[:,30,:],dim=-1)))
-        # print(self._tokenizer.decode(torch.argmax(self._outputs.logits[:,31,:],dim=-1)))
-        # print(self._tokenizer.decode(torch.argmax(self._outputs.logits[:,32,:],dim=-1)))
-        # print(self._tokenizer.decode(torch.argmax(self._outputs.logits[:,33,:],dim=-1)))
-
-        # print(self._tokenizer.batch_decode(self._generated,skip_special_tokens=True)[0])
+    async def stopGeneration(self, chat_id:str) -> AsyncIterator[str]:
+        if chat_id in self._chats:
+            if  self._chats[int(chat_id)].is_generating():
+                self._chats[int(chat_id)].s
