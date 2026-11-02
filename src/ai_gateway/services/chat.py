@@ -52,7 +52,7 @@ class Chat:
                         issue
                         recommendation
                         """
-        self._messages = [{"role":"System","content":self._system_prompt}]
+        self._messages = [{"role":"system","content":self._system_prompt}]
 
     
     def is_generating(self) -> bool:
@@ -71,7 +71,9 @@ class Chat:
             tokenize=True,
             add_generation_prompt=True,
             return_tensors="pt",
-            return_dict=True
+            return_dict=True,
+            skip_prompt=True,
+    skip_special_tokens=True
         ).to(self._model.device)
         input_length = self._inputs["input_ids"].shape[-1]
         
