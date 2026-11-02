@@ -2,6 +2,7 @@ from ai_gateway.services.mode import Mode
 from typing import AsyncIterator
 from threading import Thread, Event
 import torch
+import asyncio
 from transformers import AutoTokenizer, AutoModelForCausalLM, AsyncTextIteratorStreamer
 from ai_gateway.services.cancellation_criteria import CancellationCriteria
 
@@ -12,9 +13,10 @@ class Chat:
         self._mode = mode
         self._tokenizer = tokenizer
         self._model = model
-        self._generation_signal = Event() 
+        self._is_generating = False
+        self.cancellation_event = Event() 
         self._cancellation_criteria = [
-            CancellationCriteria(self._generation_signal)
+            CancellationCriteria(self.cancellation_event)
         ]
         # move messages to chat level
         self._system_prompt = """
@@ -54,7 +56,7 @@ class Chat:
 
     
     def is_generating(self) -> bool:
-        return self._generation_signal.is_set()
+        return self._is_generating
     
     async def send_message(self, message) -> AsyncIterator[str]:
         self._messages.append(
@@ -71,28 +73,33 @@ class Chat:
         ).to(self._model.device)
         input_length = self._inputs["input_ids"].shape[-1]
         
-        thread = Thread(target=self._generate, args=(self._streamer))
+        thread = Thread(target=self._generate, args=(self._streamer,))
         thread.start()
-
+        self._is_generating = True    
         response = ""
-        async for chunk in self._streamer:
-            response += chunk
-            yield chunk
-            
-        self._messages.append({
-            "role":"assistant", "content":response
-        })
-        self._generation_signal.clear()
+        try: 
+            async for chunk in self._streamer:
+                response += chunk
+                yield chunk
+                
+            self._messages.append({
+                "role":"assistant", "content":response
+            })
+
+        finally:
+            await asyncio.to_thread(thread.join)
+            self.cancellation_event.clear()
+            self._is_generating = False;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
         # return generated
         
 
     def stop_generation(self):
-        self._generation_signal.clear()
+        self.cancellation_event.set()
         
 
     @torch.inference_mode()
     def _generate(self, streamer):
-        while not self._generation_signal.is_set():
+        if not self._is_generating and not self.cancellation_event.is_set():
             self._model.generate(
                 **self._inputs,
                 max_new_tokens=100,
