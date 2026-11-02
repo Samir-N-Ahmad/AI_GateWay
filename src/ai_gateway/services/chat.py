@@ -59,6 +59,8 @@ class Chat:
         return self._is_generating
     
     async def send_message(self, message) -> AsyncIterator[str]:
+        if self._is_generating:
+            return
         self._messages.append(
             {"role": "user","content":message
         })
@@ -73,9 +75,9 @@ class Chat:
         ).to(self._model.device)
         input_length = self._inputs["input_ids"].shape[-1]
         
+        self._is_generating = True    
         thread = Thread(target=self._generate, args=(self._streamer,))
         thread.start()
-        self._is_generating = True    
         response = ""
         try: 
             async for chunk in self._streamer:
@@ -95,17 +97,17 @@ class Chat:
 
     def stop_generation(self):
         self.cancellation_event.set()
+        return True
         
 
     @torch.inference_mode()
     def _generate(self, streamer):
-        if not self._is_generating and not self.cancellation_event.is_set():
-            self._model.generate(
-                **self._inputs,
-                max_new_tokens=100,
-                streamer=streamer,
-                stopping_criteria = self._cancellation_criteria
-            ) 
+        self._model.generate(
+            **self._inputs,
+            max_new_tokens=100,
+            streamer=streamer,
+            stopping_criteria = self._cancellation_criteria
+        ) 
             
 
         
