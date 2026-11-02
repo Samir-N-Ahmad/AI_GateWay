@@ -35,7 +35,7 @@ class InferenceService:
                 flush=True)
                     yield chunk
 
-    async def stopGeneration(self, chat_id:str) -> AsyncIterator[str]:
+    async def stop_generation(self, chat_id:str) -> AsyncIterator[str]:
         if chat_id in self._chats:
             if  self._chats[int(chat_id)].is_generating():
                 self._chats[int(chat_id)].s
