@@ -34,5 +34,5 @@ async def new(mode:int):
 @app.post("/cancel/{chat_id}/")
 async def cancel(chatId:str):
     global inf
-    result = await inf.stop_generation()
+    result = await inf.stop_generation(chatId)
     return {"code":200, "inference":result}
