@@ -19,7 +19,21 @@ class Chat:
             CancellationCriteria(self.cancellation_event)
         ]
         # move messages to chat level
-        self._system_prompt = """
+        self._tools = [
+            {
+                "type":"function",
+                "function":{
+                    "name":"get_available_service",
+                    "description":"Retrive the available services that the user can apply on the UAE's Ministry of Sports website",
+                    "parameters":""
+                },
+                "parameters":{},
+                "required":[]
+            }
+        ]
+        self._system_prompt = { 
+            Mode.CLASSIFICATION :
+            """
                         You are a text classification model.
 
                         Classify the user's message into exactly one of these labels:
@@ -38,7 +52,8 @@ class Chat:
                         request
                         issue
                         recommendation
-                        """ if mode is Mode.CLASSIFICATION else  """
+                        """,
+                        Mode.CHAT : """
                         You are a chat model.
 
                         Communicate with the user friendly and answer their questions:
@@ -51,7 +66,21 @@ class Chat:
                         request
                         issue
                         recommendation
+                        """,
+                         Mode.SERVICE_ASSISTANT : """
+                        You are a Service application assistant.
+
+                        Use the available tools to retrieve the required information to serve the user.
+
+                        Communicate with the user friendly and answer their questions:
+                        Help the user identifies and solves the problem
+                        Rules:
+                        - Use lowercase English.
+                        - explain what you are doing and why
+
+                        
                         """
+        }.get(mode)
         self._messages = [{"role":"system","content":self._system_prompt}]
 
     
@@ -69,6 +98,7 @@ class Chat:
         self._inputs = self._tokenizer.apply_chat_template(
             self._messages,
             tokenize=True,
+            tools=self._tools,
             add_generation_prompt=True,
             return_tensors="pt",
             return_dict=True,
