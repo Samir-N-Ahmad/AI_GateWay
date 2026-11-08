@@ -5,7 +5,8 @@ import torch
 import asyncio
 from transformers import AutoTokenizer, AutoModelForCausalLM, AsyncTextIteratorStreamer
 from ai_gateway.services.cancellation_criteria import CancellationCriteria
-
+from  ai_gateway.services.api_service import ApiService
+from  ai_gateway.utils.inference_utils import InferenceUtils
 class Chat:
 
     def __init__(self, chat_id:str, mode:Mode, tokenizer: AutoTokenizer, model:AutoModelForCausalLM):
@@ -15,11 +16,12 @@ class Chat:
         self._model = model
         self._is_generating = False
         self.cancellation_event = Event() 
+        self._api_service = ApiService("https://stage.sports.gov.ae/")
         self._cancellation_criteria = [
             CancellationCriteria(self.cancellation_event)
         ]
-        # move messages to chat level
-        self._system_prompt = """
+        self._system_prompt = {
+            Mode.CLASSIFICATION : """
                         You are a text classification model.
 
                         Classify the user's message into exactly one of these labels:
@@ -38,7 +40,8 @@ class Chat:
                         request
                         issue
                         recommendation
-                        """ if mode is Mode.CLASSIFICATION else  """
+                        """,
+            Mode.CHAT : """
                         You are a chat model.
 
                         Communicate with the user friendly and answer their questions:
@@ -46,61 +49,88 @@ class Chat:
                         Rules:
                         - Use lowercase English.
                         - explain your answer.
+                        
+                        """,
+            Mode.SERVICE_ASSISTANT : """
+                        You are a Service assistant.
 
-                        Valid outputs:
-                        request
-                        issue
-                        recommendation
-                        """
+                        Communicate with the user friendly and help them applying for the Ministry of sports Services:
+                        use the provided tools to call the required APIs and get the required data
+                        Rules:
+                        - Use lowercase English.
+                        - explain your attitude
+
+                        """}.get(mode)
+        
+        self._tools = [{
+        "type": "function",
+        "function": {
+            "name": "get_available_services",
+            "description": "Retrieve the available Ministry of Sports e-Services.",
+        }
+    }]
+        self._tools_registery = {
+            "get_available_services": self._api_service.get_available_services
+        }
+        # move messages to chat level
         self._messages = [{"role":"system","content":self._system_prompt}]
 
-    
-    def is_generating(self) -> bool:
-        return self._is_generating
-    
     async def send_message(self, message) -> AsyncIterator[str]:
         if self._is_generating:
             return
         self._messages.append(
             {"role": "user","content":message
         })
-        self._streamer = AsyncTextIteratorStreamer(self._tokenizer, )
+        self._streamer = AsyncTextIteratorStreamer(self._tokenizer)
 
-        self._inputs = self._tokenizer.apply_chat_template(
-            self._messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_tensors="pt",
-            return_dict=True,
-            skip_prompt=True,
-    skip_special_tokens=True
-        ).to(self._model.device)
-        input_length = self._inputs["input_ids"].shape[-1]
-        
-        self._is_generating = True    
-        thread = Thread(target=self._generate, args=(self._streamer,))
-        thread.start()
         response = ""
-        try: 
-            async for chunk in self._streamer:
-                response += chunk
-                yield chunk
+        async for chunk in self._streamer:
+            response += chunk
+            yield chunk
                 
             self._messages.append({
                 "role":"assistant", "content":response
             })
+            calls = InferenceUtils.parse_tool_call(response)
+            if calls is not None:
+                for call  in calls:
+                    response = InferenceUtils.execute_tool(call)
 
-        finally:
-            await asyncio.to_thread(thread.join)
-            self.cancellation_event.clear()
-            self._is_generating = False;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
         # return generated
-        
 
     def stop_generation(self):
         self.cancellation_event.set()
         return True
+
+    def is_generating(self) -> bool:
+        return self._is_generating
+    
+    async def _run_inference(self) -> AsyncTextIteratorStreamer:
+        try:
+            
+            self._inputs = self._tokenizer.apply_chat_template(
+                self._messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                return_tensors="pt",
+                tools= self._tools,
+                return_dict=True,
+                skip_prompt=True,
+        skip_special_tokens=True
+            ).to(self._model.device)
+            
+            self._is_generating = True    
+            thread = Thread(target=self._generate, args=(self._streamer,))
+            thread.start()
+            
         
+        finally:
+            await asyncio.to_thread(thread.join)
+            self.cancellation_event.clear()
+            self._is_generating = False;       
 
     @torch.inference_mode()
     def _generate(self, streamer):
