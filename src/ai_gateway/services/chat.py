@@ -5,8 +5,8 @@ import torch
 import asyncio
 from transformers import AutoTokenizer, AutoModelForCausalLM, AsyncTextIteratorStreamer
 from ai_gateway.services.cancellation_criteria import CancellationCriteria
-from  ai_gateway.services.api_service import ApiService
-from  ai_gateway.utils.inference_utils import InferenceUtils
+from ai_gateway.services.api_service import ApiService
+from ai_gateway.utils.inference_utils import InferenceUtils
 class Chat:
 
     def __init__(self, chat_id:str, mode:Mode, tokenizer: AutoTokenizer, model:AutoModelForCausalLM):
@@ -101,39 +101,30 @@ class Chat:
         self._messages.append(
             {"role": "user","content":message
         })
-        self._streamer = AsyncTextIteratorStreamer(self._tokenizer)
 
-        self._inputs = self._tokenizer.apply_chat_template(
-            self._messages,
-            tokenize=True,
-            tools=self._tools,
-            add_generation_prompt=True,
-            return_tensors="pt",
-            return_dict=True,
-            skip_prompt=True,
-    skip_special_tokens=True
-        ).to(self._model.device)
-        input_length = self._inputs["input_ids"].shape[-1]
-        
-        self._is_generating = True    
-        thread = Thread(target=self._generate, args=(self._streamer,))
-        thread.start()
         response = ""
-        async for chunk in self._streamer:
-            response += chunk
-            yield chunk
+        try:
+            async for chunk in self._run_inference:
+                response += chunk
+                yield chunk
+                    
+            
+                calls = InferenceUtils.parse_tool_call(response)
+                if calls is not None:
+                    # for call  in calls:
+                    # handle only one call for now
+                    response += InferenceUtils.execute_tool(calls[0])
+                    await self.send_message(response)
+
                 
+
+        finally:
             self._messages.append({
-                "role":"assistant", "content":response
-            })
-            calls = InferenceUtils.parse_tool_call(response)
-            if calls is not None:
-                for call  in calls:
-                    response = InferenceUtils.execute_tool(call)
+                                            "role":"assistant", "content":response
+                                        })
 
 
 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
         # return generated
 
     def stop_generation(self):
@@ -143,9 +134,9 @@ class Chat:
     def is_generating(self) -> bool:
         return self._is_generating
     
-    async def _run_inference(self) -> AsyncTextIteratorStreamer:
+    async def _run_inference(self) -> AsyncIterator:
         try:
-            
+            self._is_generating = True    
             self._inputs = self._tokenizer.apply_chat_template(
                 self._messages,
                 tokenize=True,
@@ -156,16 +147,19 @@ class Chat:
                 skip_prompt=True,
         skip_special_tokens=True
             ).to(self._model.device)
-            
+            streamer = AsyncTextIteratorStreamer(self._tokenizer)
             self._is_generating = True    
-            thread = Thread(target=self._generate, args=(self._streamer,))
+            thread = Thread(target=self._generate, args=(streamer))
             thread.start()
-            
+
+            async for chunk in streamer:
+                yield chunk
         
         finally:
             await asyncio.to_thread(thread.join)
             self.cancellation_event.clear()
-            self._is_generating = False;       
+            self._is_generating = False;    
+            streamer.end()   
 
     @torch.inference_mode()
     def _generate(self, streamer):
