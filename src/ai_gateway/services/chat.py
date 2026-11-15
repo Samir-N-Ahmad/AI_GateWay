@@ -94,6 +94,8 @@ class Chat:
 
 
 
+
+
     async def send_message(self, message) -> AsyncIterator[str]:
         if self._is_generating:
             raise RuntimeError("Chat is already generating")
