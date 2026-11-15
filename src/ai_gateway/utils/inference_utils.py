@@ -15,7 +15,7 @@ class InferenceUtils:
         return await func(**arguments)
     
 
-    def parse_tool_call(text: str):
+    def parse_tool_calls(text: str):
         matches = re.findall(
             r"<tool_call>\s*(.*?)\s*</tool_call>",
             text,
@@ -23,9 +23,10 @@ class InferenceUtils:
         )
 
         if not matches:
-            if "<tool_call>" in text:
-                raise ValueError("Incomplete tool call")
             return None
+        
+        if "<tool_call>" not in text:
+            raise ValueError("Incomplete tool call")
 
         calls = []
         for callJson in matches:
@@ -36,3 +37,12 @@ class InferenceUtils:
             raise ValueError("Invalid Tool calls") 
         
         return calls
+    
+    def extract_assisitant_text_from_call_response(text:str):
+        assistant_text = re.sub(
+        r"<tool_call>.*?</tool_call>",
+        "",
+        text,
+        flags=re.DOTALL
+    ).strip()
+        return assistant_text
