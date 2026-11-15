@@ -5,10 +5,13 @@ import torch
 import asyncio
 from transformers import AutoTokenizer, AutoModelForCausalLM, AsyncTextIteratorStreamer
 from ai_gateway.services.cancellation_criteria import CancellationCriteria
-from  ai_gateway.services.api_service import ApiService
-from  ai_gateway.utils.inference_utils import InferenceUtils
+from ai_gateway.services.api_service import ApiService
+from ai_gateway.utils.inference_utils import InferenceUtils
+import json
 class Chat:
 
+
+    MAX_TOOL_CALLS = 2
     def __init__(self, chat_id:str, mode:Mode, tokenizer: AutoTokenizer, model:AutoModelForCausalLM):
         self._chat_id = chat_id
         self._mode = mode
@@ -20,6 +23,23 @@ class Chat:
         self._cancellation_criteria = [
             CancellationCriteria(self.cancellation_event)
         ]
+        # move messages to chat level
+        self._tools = [
+            {
+                "type":"function",
+                "function":{
+                    "name":"get_available_services",
+                    "description":"Retrive the available services that the user can apply on the UAE's Ministry of Sports website",
+                    "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": False
+                },
+            }
+        } 
+       ]
+
         self._system_prompt = {
             Mode.CLASSIFICATION : """
                         You are a text classification model.
@@ -51,54 +71,84 @@ class Chat:
                         - explain your answer.
                         
                         """,
-            Mode.SERVICE_ASSISTANT : """
-                        You are a Service assistant.
+                         Mode.SERVICE_ASSISTANT : """
+                        You are an AI assistant for the UAE Ministry of Sports.
 
-                        Communicate with the user friendly and help them applying for the Ministry of sports Services:
-                        use the provided tools to call the required APIs and get the required data
-                        Rules:
-                        - Use lowercase English.
-                        - explain your attitude
+                        You have access to the get_available_services tool.
+
+                        When the user asks about available Ministry of Sports services,
+                        use get_available_services to retrieve the actual information.
+
+                        Do not invent service names or information.
+                        Wait for the tool result before answering the user.
 
                         """}.get(mode)
         
-        self._tools = [{
-        "type": "function",
-        "function": {
-            "name": "get_available_services",
-            "description": "Retrieve the available Ministry of Sports e-Services.",
-        }
-    }]
+
         self._tools_registery = {
-            "get_available_services": self._api_service.get_available_services
+            "get_available_services": ApiService.get_available_services
         }
         # move messages to chat level
         self._messages = [{"role":"system","content":self._system_prompt}]
+        print(self._messages)
+
+
 
     async def send_message(self, message) -> AsyncIterator[str]:
         if self._is_generating:
-            return
+            raise RuntimeError("Chat is already generating")
+        self._is_generating = True
+        
         self._messages.append(
             {"role": "user","content":message
         })
-        self._streamer = AsyncTextIteratorStreamer(self._tokenizer)
 
+        async for chunk in self._run_agent(1):
+            yield chunk
+
+        self._is_generating = False
+        
+
+
+
+    async def _run_agent(self, recursiveCall):
+        if recursiveCall > 3:
+            raise RuntimeError("Max infernce count reached")
         response = ""
-        async for chunk in self._streamer:
+        async for chunk in self._run_inference():
             response += chunk
             yield chunk
                 
-            self._messages.append({
-                "role":"assistant", "content":response
-            })
-            calls = InferenceUtils.parse_tool_call(response)
-            if calls is not None:
-                for call  in calls:
-                    response = InferenceUtils.execute_tool(call)
+        if response:
+            
+            calls = InferenceUtils.parse_tool_calls(response)
+            if calls:
+                self._messages.append(
+                    {
+                    "role":"assistant",
+                    "content": InferenceUtils.extract_assisitant_text_from_call_response(response),
+                    "tool_calls":[
+                        {
+                            "type":"function",
+                            "function":call
+                        } for call in calls
+                    ]
+                }
+                )
+                await self._handle_tool_calls(calls)
+                async for chunk in self._run_agent(
+                recursiveCall + 1
+            ):
+                    yield chunk
+            else:
+                self._messages.append(
+                {"role": "assistant","content":response})
 
 
+            
+            
 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+
         # return generated
 
     def stop_generation(self):
@@ -108,29 +158,51 @@ class Chat:
     def is_generating(self) -> bool:
         return self._is_generating
     
-    async def _run_inference(self) -> AsyncTextIteratorStreamer:
+    async def _run_inference(self) -> AsyncIterator:
+        response = ""
         try:
-            
+            self._is_generating = True    
             self._inputs = self._tokenizer.apply_chat_template(
                 self._messages,
                 tokenize=True,
                 add_generation_prompt=True,
                 return_tensors="pt",
                 tools= self._tools,
-                return_dict=True,
+                return_dict=True,).to(self._model.device)
+            streamer = AsyncTextIteratorStreamer(
+                self._tokenizer,  
                 skip_prompt=True,
-        skip_special_tokens=True
-            ).to(self._model.device)
-            
-            self._is_generating = True    
-            thread = Thread(target=self._generate, args=(self._streamer,))
+                timeout=60,
+                skip_special_tokens=True)
+            self._is_generating = True
+            thread = Thread(target=self._generate, args=(streamer,))
             thread.start()
-            
+
+            async for chunk in streamer:
+                yield chunk
         
         finally:
             await asyncio.to_thread(thread.join)
-            self.cancellation_event.clear()
-            self._is_generating = False;       
+
+
+    async def _handle_tool_calls(self, calls):
+        if  calls:
+            # for call  in calls:
+            # handle only one call for now
+            call_results = []
+            for call in calls:
+                toolcallResult = await InferenceUtils.execute_tool(call, self._tools_registery)
+                call_results.append(toolcallResult)
+                self._messages.append(
+                    ## Add tool call request
+                    {
+                        "role":"tool",
+                        "name": call["name"],
+                        "content": json.dumps(toolcallResult)
+                    }
+                )
+                
+            
 
     @torch.inference_mode()
     def _generate(self, streamer):
