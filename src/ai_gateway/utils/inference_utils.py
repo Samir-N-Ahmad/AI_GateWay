@@ -31,7 +31,7 @@ class InferenceUtils:
         calls = []
         for callJson in matches:
             call = json.loads(callJson)
-            if not isinstance(call, dict):
+            if isinstance(call, dict):
                 calls.append(call)
         if len(calls) == 0:
             raise ValueError("Invalid Tool calls") 
