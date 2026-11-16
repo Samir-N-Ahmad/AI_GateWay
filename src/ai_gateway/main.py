@@ -1,10 +1,14 @@
 from fastapi import FastAPI
 from ai_gateway.services.inference_service import InferenceService,Mode
 from fastapi.responses import StreamingResponse
+import logging
 
 inf = None 
 app = FastAPI()
 
+logging.basicConfig(level=logging.DEBUG)
+logging.getLogger("httpx").setLevel(logging.DEBUG)
+logging.getLogger("httpcore").setLevel(logging.DEBUG)
 
 @app.get("/inference/start")
 def inference():
