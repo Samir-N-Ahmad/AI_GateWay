@@ -4,8 +4,8 @@ import re
 
 class InferenceUtils:
     
-
-    async def execute_tool(self, tool_call: dict, tools_registery: dict):
+    @staticmethod
+    async def execute_tool( tool_call: dict, tools_registery: dict):
         name = tool_call["name"]
         arguments = tool_call["arguments"]
         if name not in tools_registery :
@@ -15,6 +15,7 @@ class InferenceUtils:
         return await func(**arguments)
     
 
+    @staticmethod
     def parse_tool_calls(text: str):
         matches = re.findall(
             r"<tool_call>\s*(.*?)\s*</tool_call>",
@@ -38,6 +39,7 @@ class InferenceUtils:
         
         return calls
     
+    @staticmethod
     def extract_assisitant_text_from_call_response(text:str):
         assistant_text = re.sub(
         r"<tool_call>.*?</tool_call>",
