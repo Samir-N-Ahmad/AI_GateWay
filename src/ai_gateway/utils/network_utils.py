@@ -42,8 +42,10 @@ class NetworkUtils:
         try:
             async with httpx.AsyncClient(headers={
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "application/json"},trust_env=False,
-            timeout=5.0,
+                 "Connection": "close","Accept": "application/json",
+                },trust_env=False,
+                
+            timeout=10.0,
             follow_redirects=True,) as client:
                 response = await client.get(url)
             if response.is_success:

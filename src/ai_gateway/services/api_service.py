@@ -9,15 +9,15 @@ class ApiService:
     async def get_available_services():
         res:Data = await NetworkUtils.GET("https://stage.sports.gov.ae/serviceapi/api/Service/getServiceList")
 
-        if res.is_failure:
+        if res.is_failure():
             raise RuntimeError(res.message)
         
-        if res.is_success:
-            
+        if res.is_success():
+            datalist = res.data['Data'] 
             return [{
                 "title":  data["title"],
                 "isElectronic" :  data["isElectronic"],
                 "isActive": data["isActive"]
             }
-                 for data in res["Data"]
+                 for data in datalist
             ]
